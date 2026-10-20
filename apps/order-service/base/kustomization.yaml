@@ -1,0 +1,38 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: order-service
+
+labels:
+  - pairs:
+      app.kubernetes.io/part-of: order-platform
+    includeSelectors: false
+
+resources:
+  - namespace.yaml
+  - serviceaccount.yaml
+  - rollout.yaml
+  - analysis-template.yaml
+  - service.yaml
+  - servicemonitor.yaml
+  - prometheusrule.yaml
+  - networkpolicy.yaml
+  - pdb.yaml
+  - traffic-generator.yaml
+
+# Rollout is a CRD, so kustomize can't rewrite configMap name hashes inside it.
+generatorOptions:
+  disableNameSuffixHash: true
+
+configMapGenerator:
+  - name: order-service-config
+    literals:
+      - APP_ENV=base
+  # Grafana's sidecar loads every ConfigMap labelled grafana_dashboard=1 (any namespace)
+  - name: order-service-dashboard
+    files:
+      - dashboards/order-service.json
+    options:
+      labels:
+        grafana_dashboard: "1"
+      annotations:
+        grafana_folder: Order Platform

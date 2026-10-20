@@ -1,0 +1,7 @@
+# Dev: policies run in Audit mode - violations show up in PolicyReports
+# (kubectl get polr -A) but nothing is blocked. Try new policies here first.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+resources:
+  - ../../base

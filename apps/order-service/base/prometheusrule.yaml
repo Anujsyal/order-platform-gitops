@@ -1,0 +1,213 @@
+# SLO-based alerting for order-service (Google SRE "multi-window, multi-burn-rate").
+#
+#   Availability SLO : 99.5% of API requests are not 5xx   -> error budget 0.5%
+#   Latency SLO      : 99%   of API requests finish < 300ms -> error budget 1%
+#
+# Instead of "error rate > 5%" (noisy on blips, silent on slow leaks) we alert on
+# how FAST the error budget is being burned:
+# (times below are for our 7-day SLO window)
+#   14.4x over 1h (and still over 5m)  -> budget gone in ~12h      -> critical (page)
+#    6x   over 6h (and still over 30m) -> budget gone in ~28h      -> critical (page)
+#    3x   over 1d (and still over 2h)  -> budget gone in ~2.3 days -> warning (ticket)
+#    1x   over 3d (and still over 6h)  -> on track to miss SLO     -> warning (ticket)
+# The short window makes the alert resolve quickly once the problem is fixed.
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: order-service
+  annotations:
+    argocd.argoproj.io/sync-options: SkipDryRunOnMissingResource=true
+spec:
+  groups:
+    # ------------------------------------------------------------------ SLIs
+    - name: order-service.sli
+      interval: 30s
+      rules:
+        - record: slo:sli_error:ratio_rate5m
+          labels: { slo: availability, service: order-service }
+          expr: |
+            sum(rate(http_server_requests_seconds_count{namespace="order-service",job="order-service",uri!~"/actuator.*",status=~"5.."}[5m]))
+            / sum(rate(http_server_requests_seconds_count{namespace="order-service",job="order-service",uri!~"/actuator.*"}[5m]))
+        - record: slo:sli_error:ratio_rate30m
+          labels: { slo: availability, service: order-service }
+          expr: |
+            sum(rate(http_server_requests_seconds_count{namespace="order-service",job="order-service",uri!~"/actuator.*",status=~"5.."}[30m]))
+            / sum(rate(http_server_requests_seconds_count{namespace="order-service",job="order-service",uri!~"/actuator.*"}[30m]))
+        - record: slo:sli_error:ratio_rate1h
+          labels: { slo: availability, service: order-service }
+          expr: |
+            sum(rate(http_server_requests_seconds_count{namespace="order-service",job="order-service",uri!~"/actuator.*",status=~"5.."}[1h]))
+            / sum(rate(http_server_requests_seconds_count{namespace="order-service",job="order-service",uri!~"/actuator.*"}[1h]))
+        - record: slo:sli_error:ratio_rate2h
+          labels: { slo: availability, service: order-service }
+          expr: |
+            sum(rate(http_server_requests_seconds_count{namespace="order-service",job="order-service",uri!~"/actuator.*",status=~"5.."}[2h]))
+            / sum(rate(http_server_requests_seconds_count{namespace="order-service",job="order-service",uri!~"/actuator.*"}[2h]))
+        - record: slo:sli_error:ratio_rate6h
+          labels: { slo: availability, service: order-service }
+          expr: |
+            sum(rate(http_server_requests_seconds_count{namespace="order-service",job="order-service",uri!~"/actuator.*",status=~"5.."}[6h]))
+            / sum(rate(http_server_requests_seconds_count{namespace="order-service",job="order-service",uri!~"/actuator.*"}[6h]))
+        - record: slo:sli_error:ratio_rate1d
+          labels: { slo: availability, service: order-service }
+          expr: |
+            sum(rate(http_server_requests_seconds_count{namespace="order-service",job="order-service",uri!~"/actuator.*",status=~"5.."}[1d]))
+            / sum(rate(http_server_requests_seconds_count{namespace="order-service",job="order-service",uri!~"/actuator.*"}[1d]))
+        - record: slo:sli_error:ratio_rate3d
+          labels: { slo: availability, service: order-service }
+          expr: |
+            sum(rate(http_server_requests_seconds_count{namespace="order-service",job="order-service",uri!~"/actuator.*",status=~"5.."}[3d]))
+            / sum(rate(http_server_requests_seconds_count{namespace="order-service",job="order-service",uri!~"/actuator.*"}[3d]))
+        - record: slo:sli_error:ratio_rate7d
+          labels: { slo: availability, service: order-service }
+          expr: |
+            sum(rate(http_server_requests_seconds_count{namespace="order-service",job="order-service",uri!~"/actuator.*",status=~"5.."}[7d]))
+            / sum(rate(http_server_requests_seconds_count{namespace="order-service",job="order-service",uri!~"/actuator.*"}[7d]))
+
+        # Latency SLI: share of requests slower than 300ms
+        - record: slo:sli_error:ratio_rate5m
+          labels: { slo: latency, service: order-service }
+          expr: |
+            1 - (
+              sum(rate(http_server_requests_seconds_bucket{namespace="order-service",job="order-service",uri!~"/actuator.*",le="0.3"}[5m]))
+              / sum(rate(http_server_requests_seconds_count{namespace="order-service",job="order-service",uri!~"/actuator.*"}[5m])))
+        - record: slo:sli_error:ratio_rate1h
+          labels: { slo: latency, service: order-service }
+          expr: |
+            1 - (
+              sum(rate(http_server_requests_seconds_bucket{namespace="order-service",job="order-service",uri!~"/actuator.*",le="0.3"}[1h]))
+              / sum(rate(http_server_requests_seconds_count{namespace="order-service",job="order-service",uri!~"/actuator.*"}[1h])))
+        - record: slo:sli_error:ratio_rate6h
+          labels: { slo: latency, service: order-service }
+          expr: |
+            1 - (
+              sum(rate(http_server_requests_seconds_bucket{namespace="order-service",job="order-service",uri!~"/actuator.*",le="0.3"}[6h]))
+              / sum(rate(http_server_requests_seconds_count{namespace="order-service",job="order-service",uri!~"/actuator.*"}[6h])))
+        - record: slo:sli_error:ratio_rate30m
+          labels: { slo: latency, service: order-service }
+          expr: |
+            1 - (
+              sum(rate(http_server_requests_seconds_bucket{namespace="order-service",job="order-service",uri!~"/actuator.*",le="0.3"}[30m]))
+              / sum(rate(http_server_requests_seconds_count{namespace="order-service",job="order-service",uri!~"/actuator.*"}[30m])))
+
+        # Error budget remaining over the 7-day SLO window (1 = untouched, 0 = spent, <0 = SLO missed)
+        - record: slo:error_budget_remaining:ratio7d
+          labels: { slo: availability, service: order-service }
+          expr: 1 - (slo:sli_error:ratio_rate7d{slo="availability",service="order-service"} / 0.005)
+
+    # ------------------------------------------------------------------ SLO burn-rate alerts
+    - name: order-service.slo-alerts
+      rules:
+        - alert: OrderServiceErrorBudgetBurn
+          expr: |
+            (
+              slo:sli_error:ratio_rate1h{slo="availability",service="order-service"} > (14.4 * 0.005)
+              and
+              slo:sli_error:ratio_rate5m{slo="availability",service="order-service"} > (14.4 * 0.005)
+            )
+            or
+            (
+              slo:sli_error:ratio_rate6h{slo="availability",service="order-service"} > (6 * 0.005)
+              and
+              slo:sli_error:ratio_rate30m{slo="availability",service="order-service"} > (6 * 0.005)
+            )
+          for: 2m
+          labels:
+            severity: critical
+            namespace: order-service
+          annotations:
+            summary: order-service is burning its availability error budget fast
+            description: "5xx ratio is {{ $value | humanizePercentage }} - at this rate the 7-day error budget will be gone within days."
+            runbook_url: https://github.com/Anujsyal/order-platform/blob/main/docs/RUNBOOKS.md#orderserviceerrorbudgetburn
+        - alert: OrderServiceErrorBudgetBurn
+          expr: |
+            (
+              slo:sli_error:ratio_rate1d{slo="availability",service="order-service"} > (3 * 0.005)
+              and
+              slo:sli_error:ratio_rate2h{slo="availability",service="order-service"} > (3 * 0.005)
+            )
+            or
+            (
+              slo:sli_error:ratio_rate3d{slo="availability",service="order-service"} > (1 * 0.005)
+              and
+              slo:sli_error:ratio_rate6h{slo="availability",service="order-service"} > (1 * 0.005)
+            )
+          for: 15m
+          labels:
+            severity: warning
+            namespace: order-service
+          annotations:
+            summary: order-service is slowly burning its availability error budget
+            description: "5xx ratio is {{ $value | humanizePercentage }} - on track to miss the 99.5% SLO."
+            runbook_url: https://github.com/Anujsyal/order-platform/blob/main/docs/RUNBOOKS.md#orderserviceerrorbudgetburn
+        - alert: OrderServiceLatencyBudgetBurn
+          expr: |
+            (
+              slo:sli_error:ratio_rate1h{slo="latency",service="order-service"} > (14.4 * 0.01)
+              and
+              slo:sli_error:ratio_rate5m{slo="latency",service="order-service"} > (14.4 * 0.01)
+            )
+            or
+            (
+              slo:sli_error:ratio_rate6h{slo="latency",service="order-service"} > (6 * 0.01)
+              and
+              slo:sli_error:ratio_rate30m{slo="latency",service="order-service"} > (6 * 0.01)
+            )
+          for: 2m
+          labels:
+            severity: warning
+            namespace: order-service
+          annotations:
+            summary: order-service requests are too slow
+            description: "{{ $value | humanizePercentage }} of requests take longer than 300ms (SLO allows 1%)."
+            runbook_url: https://github.com/Anujsyal/order-platform/blob/main/docs/RUNBOOKS.md#orderservicelatencybudgetburn
+
+    # ------------------------------------------------------------------ Symptom / capacity alerts
+    - name: order-service.alerts
+      rules:
+        - alert: OrderServiceDown
+          expr: sum(up{namespace="order-service",job="order-service"}) == 0 or absent(up{namespace="order-service",job="order-service"})
+          for: 2m
+          labels:
+            severity: critical
+            namespace: order-service
+          annotations:
+            summary: order-service has no healthy scrape targets
+            description: Prometheus cannot scrape any order-service pod. The service is down or unreachable.
+            runbook_url: https://github.com/Anujsyal/order-platform/blob/main/docs/RUNBOOKS.md#orderservicedown
+        - alert: OrderServiceTrafficDrop
+          # Seasonality-aware: compare with the same time yesterday instead of a fixed number.
+          expr: |
+            sum(rate(http_server_requests_seconds_count{namespace="order-service",job="order-service",uri!~"/actuator.*"}[15m]))
+              < 0.5 * sum(rate(http_server_requests_seconds_count{namespace="order-service",job="order-service",uri!~"/actuator.*"}[15m] offset 1d))
+            and
+            sum(rate(http_server_requests_seconds_count{namespace="order-service",job="order-service",uri!~"/actuator.*"}[15m] offset 1d)) > 0.1
+          for: 15m
+          labels:
+            severity: warning
+            namespace: order-service
+          annotations:
+            summary: order-service traffic is less than half of the same time yesterday
+            description: Upstream callers may be failing, DNS/NodePort may be broken, or clients can't reach the service.
+            runbook_url: https://github.com/Anujsyal/order-platform/blob/main/docs/RUNBOOKS.md#orderservicetrafficdrop
+        - alert: OrderServiceMemoryNearLimit
+          expr: |
+            max by (pod) (container_memory_working_set_bytes{namespace="order-service",container="order-service"})
+              / max by (pod) (kube_pod_container_resource_limits{namespace="order-service",container="order-service",resource="memory"}) > 0.9
+          for: 10m
+          labels:
+            severity: warning
+            namespace: order-service
+          annotations:
+            summary: "{{ $labels.pod }} is using {{ $value | humanizePercentage }} of its memory limit"
+            description: The pod will be OOM-killed soon. Check for leaks or raise the limit.
+            runbook_url: https://github.com/Anujsyal/order-platform/blob/main/docs/RUNBOOKS.md#orderservicememorynearlimit
+        - alert: OrderServicePodRestarting
+          expr: increase(kube_pod_container_status_restarts_total{namespace="order-service"}[15m]) > 2
+          labels:
+            severity: warning
+            namespace: order-service
+          annotations:
+            summary: "{{ $labels.pod }} restarted more than twice in 15 minutes"
+            description: Check `kubectl logs --previous` and `kubectl describe pod` for OOMKilled or failing probes.
+            runbook_url: https://github.com/Anujsyal/order-platform/blob/main/docs/RUNBOOKS.md#orderservicepodrestarting

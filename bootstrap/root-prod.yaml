@@ -1,0 +1,28 @@
+# Root "app of apps" for the prod cluster. Terraform applies this
+# automatically on the master node; apply it by hand only if you built the
+# cluster manually (guide section A14):
+#   kubectl apply -f bootstrap/root-prod.yaml
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: root
+  namespace: argocd
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/Anujsyal/order-platform-gitops.git
+    targetRevision: main
+    path: clusters/prod
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: argocd
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    retry:
+      limit: 10
+      backoff:
+        duration: 30s
+        factor: 2
+        maxDuration: 10m

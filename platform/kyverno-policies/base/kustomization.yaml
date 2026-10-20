@@ -1,0 +1,9 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+resources:
+  - disallow-latest-tag.yaml
+  - require-requests-limits.yaml
+  - restrict-image-registries.yaml
+  - require-non-root.yaml
+  - require-labels.yaml

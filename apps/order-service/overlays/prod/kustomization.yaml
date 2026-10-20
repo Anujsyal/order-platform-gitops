@@ -1,0 +1,39 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+resources:
+  - ../../base
+
+# Jenkins updates this block (kustomize edit set image) after the prod approval.
+images:
+  - name: order-service
+    newName: docker.io/maverick8826/order-service
+    newTag: "0.0.0"
+
+generatorOptions:
+  disableNameSuffixHash: true
+
+configMapGenerator:
+  - name: order-service-config
+    behavior: merge
+    literals:
+      - APP_ENV=prod
+
+patches:
+  - target:
+      kind: Rollout
+      name: order-service
+    patch: |-
+      - op: replace
+        path: /spec/replicas
+        value: 3
+      # Prod canary moves slower so the analysis gets more data per step.
+      - op: replace
+        path: /spec/strategy/canary/steps
+        value:
+          - setWeight: 20
+          - pause: { duration: 5m }
+          - setWeight: 50
+          - pause: { duration: 5m }
+          - setWeight: 80
+          - pause: { duration: 2m }

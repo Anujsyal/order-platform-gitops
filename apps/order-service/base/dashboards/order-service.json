@@ -1,0 +1,194 @@
+{
+  "uid": "order-service",
+  "title": "Order Service - SLO & RED",
+  "tags": ["order-platform", "slo"],
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "version": 1,
+  "refresh": "30s",
+  "time": { "from": "now-6h", "to": "now" },
+  "templating": {
+    "list": [
+      { "name": "datasource", "label": "Data source", "type": "datasource", "query": "prometheus", "current": {}, "hide": 0 }
+    ]
+  },
+  "annotations": {
+    "list": [
+      {
+        "builtIn": 1, "datasource": { "type": "grafana", "uid": "-- Grafana --" }, "enable": true, "hide": true,
+        "iconColor": "rgba(0, 211, 255, 1)", "name": "Annotations & Alerts", "type": "dashboard"
+      },
+      {
+        "name": "Deployments",
+        "datasource": { "type": "prometheus", "uid": "${datasource}" },
+        "enable": true,
+        "iconColor": "#FF9830",
+        "expr": "max by (replicaset) (kube_replicaset_created{namespace=\"order-service\", replicaset=~\"order-service-.*\"}) * 1000",
+        "useValueForTime": true,
+        "step": "60s",
+        "titleFormat": "Deployment",
+        "textFormat": "New ReplicaSet {{replicaset}}"
+      },
+      {
+        "name": "Firing alerts",
+        "datasource": { "type": "prometheus", "uid": "${datasource}" },
+        "enable": true,
+        "iconColor": "#F2495C",
+        "expr": "ALERTS{alertstate=\"firing\", namespace=\"order-service\"}",
+        "step": "60s",
+        "titleFormat": "{{alertname}}",
+        "textFormat": "severity={{severity}}"
+      }
+    ]
+  },
+  "panels": [
+    {
+      "id": 1, "type": "stat", "title": "Availability (1h)",
+      "gridPos": { "x": 0, "y": 0, "w": 4, "h": 4 },
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "targets": [{ "refId": "A", "expr": "1 - slo:sli_error:ratio_rate1h{slo=\"availability\",service=\"order-service\"}" }],
+      "fieldConfig": { "defaults": { "unit": "percentunit", "decimals": 2,
+        "thresholds": { "mode": "absolute", "steps": [ { "color": "red", "value": null }, { "color": "orange", "value": 0.99 }, { "color": "green", "value": 0.995 } ] } }, "overrides": [] },
+      "options": { "colorMode": "background", "reduceOptions": { "calcs": ["lastNotNull"] } }
+    },
+    {
+      "id": 2, "type": "stat", "title": "Error budget left (7d, SLO 99.5%)",
+      "gridPos": { "x": 4, "y": 0, "w": 4, "h": 4 },
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "targets": [{ "refId": "A", "expr": "slo:error_budget_remaining:ratio7d{slo=\"availability\",service=\"order-service\"}" }],
+      "fieldConfig": { "defaults": { "unit": "percentunit", "decimals": 1,
+        "thresholds": { "mode": "absolute", "steps": [ { "color": "red", "value": null }, { "color": "orange", "value": 0.25 }, { "color": "green", "value": 0.5 } ] } }, "overrides": [] },
+      "options": { "colorMode": "background", "reduceOptions": { "calcs": ["lastNotNull"] } }
+    },
+    {
+      "id": 3, "type": "stat", "title": "Requests / s",
+      "gridPos": { "x": 8, "y": 0, "w": 4, "h": 4 },
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "targets": [{ "refId": "A", "expr": "sum(rate(http_server_requests_seconds_count{namespace=\"order-service\",job=\"order-service\",uri!~\"/actuator.*\"}[5m]))" }],
+      "fieldConfig": { "defaults": { "unit": "reqps", "decimals": 2 }, "overrides": [] },
+      "options": { "colorMode": "value", "graphMode": "area", "reduceOptions": { "calcs": ["lastNotNull"] } }
+    },
+    {
+      "id": 4, "type": "stat", "title": "p95 latency",
+      "gridPos": { "x": 12, "y": 0, "w": 4, "h": 4 },
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "targets": [{ "refId": "A", "expr": "histogram_quantile(0.95, sum by (le) (rate(http_server_requests_seconds_bucket{namespace=\"order-service\",job=\"order-service\",uri!~\"/actuator.*\"}[5m])))" }],
+      "fieldConfig": { "defaults": { "unit": "s",
+        "thresholds": { "mode": "absolute", "steps": [ { "color": "green", "value": null }, { "color": "orange", "value": 0.2 }, { "color": "red", "value": 0.3 } ] } }, "overrides": [] },
+      "options": { "colorMode": "value", "graphMode": "area", "reduceOptions": { "calcs": ["lastNotNull"] } }
+    },
+    {
+      "id": 5, "type": "stat", "title": "Ready pods",
+      "gridPos": { "x": 16, "y": 0, "w": 4, "h": 4 },
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "targets": [{ "refId": "A", "expr": "sum(kube_pod_status_ready{namespace=\"order-service\",condition=\"true\",pod=~\"order-service-.*\"})" }],
+      "fieldConfig": { "defaults": { "unit": "none",
+        "thresholds": { "mode": "absolute", "steps": [ { "color": "red", "value": null }, { "color": "orange", "value": 1 }, { "color": "green", "value": 2 } ] } }, "overrides": [] },
+      "options": { "colorMode": "value", "reduceOptions": { "calcs": ["lastNotNull"] } }
+    },
+    {
+      "id": 6, "type": "stat", "title": "Canary rollout phase",
+      "gridPos": { "x": 20, "y": 0, "w": 4, "h": 4 },
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "targets": [{ "refId": "A", "expr": "max by (phase) (rollout_info{namespace=\"order-service\",name=\"order-service\"}) == 1", "legendFormat": "{{phase}}" }],
+      "fieldConfig": { "defaults": { "unit": "none",
+        "mappings": [], "thresholds": { "mode": "absolute", "steps": [ { "color": "blue", "value": null } ] } },
+        "overrides": [
+          { "matcher": { "id": "byName", "options": "Healthy" }, "properties": [ { "id": "color", "value": { "mode": "fixed", "fixedColor": "green" } } ] },
+          { "matcher": { "id": "byName", "options": "Degraded" }, "properties": [ { "id": "color", "value": { "mode": "fixed", "fixedColor": "red" } } ] }
+        ] },
+      "options": { "colorMode": "background", "textMode": "name", "reduceOptions": { "calcs": ["lastNotNull"] } }
+    },
+    {
+      "id": 7, "type": "timeseries", "title": "Requests / s by status",
+      "gridPos": { "x": 0, "y": 4, "w": 12, "h": 8 },
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "targets": [{ "refId": "A", "expr": "sum by (status) (rate(http_server_requests_seconds_count{namespace=\"order-service\",job=\"order-service\",uri!~\"/actuator.*\"}[1m]))", "legendFormat": "{{status}}" }],
+      "fieldConfig": { "defaults": { "unit": "reqps", "custom": { "fillOpacity": 15, "stacking": { "mode": "normal" } } },
+        "overrides": [ { "matcher": { "id": "byRegexp", "options": "5.." }, "properties": [ { "id": "color", "value": { "mode": "fixed", "fixedColor": "red" } } ] } ] }
+    },
+    {
+      "id": 8, "type": "timeseries", "title": "5xx ratio vs SLO (0.5%)",
+      "gridPos": { "x": 12, "y": 4, "w": 12, "h": 8 },
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "targets": [
+        { "refId": "A", "expr": "slo:sli_error:ratio_rate5m{slo=\"availability\",service=\"order-service\"}", "legendFormat": "5m" },
+        { "refId": "B", "expr": "slo:sli_error:ratio_rate1h{slo=\"availability\",service=\"order-service\"}", "legendFormat": "1h" }
+      ],
+      "fieldConfig": { "defaults": { "unit": "percentunit", "min": 0,
+        "custom": { "thresholdsStyle": { "mode": "line+area" } },
+        "thresholds": { "mode": "absolute", "steps": [ { "color": "transparent", "value": null }, { "color": "red", "value": 0.005 } ] } }, "overrides": [] }
+    },
+    {
+      "id": 9, "type": "timeseries", "title": "Latency percentiles (SLO: 99% < 300ms)",
+      "gridPos": { "x": 0, "y": 12, "w": 12, "h": 8 },
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "targets": [
+        { "refId": "A", "expr": "histogram_quantile(0.50, sum by (le) (rate(http_server_requests_seconds_bucket{namespace=\"order-service\",job=\"order-service\",uri!~\"/actuator.*\"}[5m])))", "legendFormat": "p50" },
+        { "refId": "B", "expr": "histogram_quantile(0.95, sum by (le) (rate(http_server_requests_seconds_bucket{namespace=\"order-service\",job=\"order-service\",uri!~\"/actuator.*\"}[5m])))", "legendFormat": "p95" },
+        { "refId": "C", "expr": "histogram_quantile(0.99, sum by (le) (rate(http_server_requests_seconds_bucket{namespace=\"order-service\",job=\"order-service\",uri!~\"/actuator.*\"}[5m])))", "legendFormat": "p99" }
+      ],
+      "fieldConfig": { "defaults": { "unit": "s", "min": 0,
+        "custom": { "thresholdsStyle": { "mode": "line" } },
+        "thresholds": { "mode": "absolute", "steps": [ { "color": "transparent", "value": null }, { "color": "red", "value": 0.3 } ] } }, "overrides": [] }
+    },
+    {
+      "id": 10, "type": "timeseries", "title": "Error-budget burn rate (page at 14.4x / 6x)",
+      "description": "1x = budget lasts exactly the 7-day window. 14.4x over 1h or 6x over 6h pages on-call.",
+      "gridPos": { "x": 12, "y": 12, "w": 12, "h": 8 },
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "targets": [
+        { "refId": "A", "expr": "slo:sli_error:ratio_rate5m{slo=\"availability\",service=\"order-service\"} / 0.005", "legendFormat": "5m" },
+        { "refId": "B", "expr": "slo:sli_error:ratio_rate1h{slo=\"availability\",service=\"order-service\"} / 0.005", "legendFormat": "1h" },
+        { "refId": "C", "expr": "slo:sli_error:ratio_rate6h{slo=\"availability\",service=\"order-service\"} / 0.005", "legendFormat": "6h" }
+      ],
+      "fieldConfig": { "defaults": { "unit": "x", "min": 0,
+        "custom": { "thresholdsStyle": { "mode": "line" } },
+        "thresholds": { "mode": "absolute", "steps": [ { "color": "transparent", "value": null }, { "color": "orange", "value": 6 }, { "color": "red", "value": 14.4 } ] } }, "overrides": [] }
+    },
+    {
+      "id": 11, "type": "timeseries", "title": "Orders created / min",
+      "gridPos": { "x": 0, "y": 20, "w": 8, "h": 8 },
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "targets": [{ "refId": "A", "expr": "sum(rate(orders_created_total{namespace=\"order-service\"}[5m])) * 60", "legendFormat": "orders/min" }],
+      "fieldConfig": { "defaults": { "unit": "short", "min": 0 }, "overrides": [] }
+    },
+    {
+      "id": 12, "type": "timeseries", "title": "JVM heap used by pod",
+      "gridPos": { "x": 8, "y": 20, "w": 8, "h": 8 },
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "targets": [{ "refId": "A", "expr": "sum by (pod) (jvm_memory_used_bytes{namespace=\"order-service\",area=\"heap\"})", "legendFormat": "{{pod}}" }],
+      "fieldConfig": { "defaults": { "unit": "bytes", "min": 0 }, "overrides": [] }
+    },
+    {
+      "id": 13, "type": "timeseries", "title": "CPU by pod (cores)",
+      "gridPos": { "x": 16, "y": 20, "w": 8, "h": 8 },
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "targets": [{ "refId": "A", "expr": "sum by (pod) (rate(container_cpu_usage_seconds_total{namespace=\"order-service\",container=\"order-service\"}[5m]))", "legendFormat": "{{pod}}" }],
+      "fieldConfig": { "defaults": { "unit": "short", "min": 0 }, "overrides": [] }
+    },
+    {
+      "id": 14, "type": "timeseries", "title": "Memory vs limit by pod",
+      "gridPos": { "x": 0, "y": 28, "w": 12, "h": 8 },
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "targets": [{ "refId": "A", "expr": "max by (pod) (container_memory_working_set_bytes{namespace=\"order-service\",container=\"order-service\"}) / max by (pod) (kube_pod_container_resource_limits{namespace=\"order-service\",container=\"order-service\",resource=\"memory\"})", "legendFormat": "{{pod}}" }],
+      "fieldConfig": { "defaults": { "unit": "percentunit", "min": 0, "max": 1,
+        "custom": { "thresholdsStyle": { "mode": "line" } },
+        "thresholds": { "mode": "absolute", "steps": [ { "color": "transparent", "value": null }, { "color": "red", "value": 0.9 } ] } }, "overrides": [] }
+    },
+    {
+      "id": 15, "type": "timeseries", "title": "Container restarts (15m)",
+      "gridPos": { "x": 12, "y": 28, "w": 12, "h": 8 },
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "targets": [{ "refId": "A", "expr": "sum by (pod) (increase(kube_pod_container_status_restarts_total{namespace=\"order-service\"}[15m]))", "legendFormat": "{{pod}}" }],
+      "fieldConfig": { "defaults": { "unit": "short", "min": 0, "custom": { "drawStyle": "bars" } }, "overrides": [] }
+    },
+    {
+      "id": 16, "type": "table", "title": "Firing alerts",
+      "gridPos": { "x": 0, "y": 36, "w": 24, "h": 6 },
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "targets": [{ "refId": "A", "expr": "ALERTS{alertstate=\"firing\",namespace=\"order-service\"}", "format": "table", "instant": true }],
+      "transformations": [ { "id": "organize", "options": { "excludeByName": { "Time": true, "Value": true, "__name__": true, "alertstate": true } } } ]
+    }
+  ]
+}

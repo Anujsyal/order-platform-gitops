@@ -1,0 +1,39 @@
+apiVersion: kyverno.io/v1
+kind: ClusterPolicy
+metadata:
+  name: disallow-latest-tag
+  annotations:
+    policies.kyverno.io/title: Disallow latest tag
+    policies.kyverno.io/description: Images must be pinned to an immutable tag so rollbacks are deterministic.
+spec:
+  validationFailureAction: Audit # overlays switch staging/prod to Enforce
+  background: true
+  rules:
+    - name: require-image-tag
+      match:
+        any:
+          - resources:
+              kinds: ["Pod"]
+              namespaceSelector:
+                matchLabels:
+                  policy.order-platform.io/enforce: "true"
+      validate:
+        message: "An image tag is required."
+        pattern:
+          spec:
+            containers:
+              - image: "*:*"
+    - name: validate-image-tag
+      match:
+        any:
+          - resources:
+              kinds: ["Pod"]
+              namespaceSelector:
+                matchLabels:
+                  policy.order-platform.io/enforce: "true"
+      validate:
+        message: "Using the mutable tag 'latest' is not allowed."
+        pattern:
+          spec:
+            containers:
+              - image: "!*:latest"

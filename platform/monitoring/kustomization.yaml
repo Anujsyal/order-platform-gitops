@@ -1,0 +1,23 @@
+# Platform monitoring config: scrape targets, platform alert rules and the
+# overview dashboard. The Prometheus/Grafana/Alertmanager install itself is the
+# kube-prometheus-stack Application in clusters/<env>/addons.yaml.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: monitoring
+
+resources:
+  - argocd-servicemonitor.yaml
+  - platform-alerts.yaml
+
+generatorOptions:
+  disableNameSuffixHash: true
+
+configMapGenerator:
+  - name: platform-overview-dashboard
+    files:
+      - dashboards/platform-overview.json
+    options:
+      labels:
+        grafana_dashboard: "1"
+      annotations:
+        grafana_folder: Order Platform

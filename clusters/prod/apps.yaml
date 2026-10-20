@@ -1,0 +1,45 @@
+# Business applications running in the prod cluster.
+# The image tag itself lives in apps/order-service/overlays/prod and is
+# changed only by the Jenkins pipeline (after approval for staging/prod).
+apiVersion: argoproj.io/v1alpha1
+kind: AppProject
+metadata:
+  name: order-platform
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "-5"
+spec:
+  description: Order platform workloads - may only deploy from the GitOps repo into the order-service namespace
+  sourceRepos:
+    - https://github.com/Anujsyal/order-platform-gitops.git
+  destinations:
+    - server: https://kubernetes.default.svc
+      namespace: order-service
+  clusterResourceWhitelist:
+    - group: ""
+      kind: Namespace
+---
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: order-service
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "1"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: order-platform
+  source:
+    repoURL: https://github.com/Anujsyal/order-platform-gitops.git
+    targetRevision: main
+    path: apps/order-service/overlays/prod
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: order-service
+  syncPolicy:
+    automated: { prune: true, selfHeal: true }
+    syncOptions: ["PruneLast=true"]
+    retry:
+      limit: 10
+      backoff: { duration: 30s, factor: 2, maxDuration: 10m }

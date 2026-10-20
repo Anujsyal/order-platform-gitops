@@ -1,0 +1,67 @@
+# Alerts for the delivery platform itself. Node, kubelet, etcd-less control plane,
+# disk-fill prediction (predict_linear) etc. already ship with kube-prometheus-stack.
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: platform-alerts
+spec:
+  groups:
+    - name: gitops.rules
+      rules:
+        - alert: ArgoCDAppDegraded
+          expr: max by (name, dest_namespace) (argocd_app_info{health_status="Degraded"}) == 1
+          for: 10m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Argo CD app {{ $labels.name }} is Degraded"
+            description: Resources managed by this app are unhealthy (failed pods, aborted rollout, missing image).
+            runbook_url: https://github.com/Anujsyal/order-platform/blob/main/docs/RUNBOOKS.md#argocdappdegraded
+        - alert: ArgoCDAppOutOfSync
+          expr: max by (name) (argocd_app_info{sync_status="OutOfSync"}) == 1
+          for: 30m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Argo CD app {{ $labels.name }} has been OutOfSync for 30m"
+            description: The cluster has drifted from Git, or syncs keep failing. Someone may have changed resources by hand.
+            runbook_url: https://github.com/Anujsyal/order-platform/blob/main/docs/RUNBOOKS.md#argocdappoutofsync
+        - alert: ArgoCDSyncFailing
+          expr: sum by (name) (increase(argocd_app_sync_total{phase=~"Error|Failed"}[15m])) > 2
+          labels:
+            severity: warning
+          annotations:
+            summary: "Argo CD app {{ $labels.name }} failed to sync {{ $value }} times in 15m"
+            runbook_url: https://github.com/Anujsyal/order-platform/blob/main/docs/RUNBOOKS.md#argocdappoutofsync
+
+    - name: progressive-delivery.rules
+      rules:
+        - alert: RolloutAborted
+          expr: max by (name, namespace) (rollout_info{phase="Degraded"}) == 1
+          for: 1m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Canary for {{ $labels.namespace }}/{{ $labels.name }} was aborted - auto-rolled back"
+            description: Canary analysis failed and Argo Rollouts restored the stable version. Users are safe, but the release needs investigation.
+            runbook_url: https://github.com/Anujsyal/order-platform/blob/main/docs/RUNBOOKS.md#rolloutaborted
+        - alert: RolloutStuck
+          expr: max by (name, namespace) (rollout_info{phase=~"Progressing|Paused"}) == 1
+          for: 45m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Rollout {{ $labels.namespace }}/{{ $labels.name }} has been progressing for 45m"
+            runbook_url: https://github.com/Anujsyal/order-platform/blob/main/docs/RUNBOOKS.md#rolloutaborted
+
+    - name: policy.rules
+      rules:
+        - alert: KyvernoPolicyViolations
+          expr: sum by (policy_name, resource_namespace) (increase(kyverno_policy_results_total{rule_result="fail"}[15m])) > 0
+          for: 5m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Kyverno policy {{ $labels.policy_name }} is failing in {{ $labels.resource_namespace }}"
+            description: In Audit clusters this is a warning of what Enforce would block; in Enforce clusters a deployment is being rejected.
+            runbook_url: https://github.com/Anujsyal/order-platform/blob/main/docs/RUNBOOKS.md#kyvernopolicyviolations

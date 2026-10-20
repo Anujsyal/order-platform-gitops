@@ -1,0 +1,24 @@
+# Runs in the background during every canary. Two failed measurements in a row
+# (success rate < 95%) => AnalysisRun fails => Rollout aborts and scales the
+# canary away, leaving the previous version serving 100% of traffic.
+apiVersion: argoproj.io/v1alpha1
+kind: AnalysisTemplate
+metadata:
+  name: success-rate
+  annotations:
+    argocd.argoproj.io/sync-options: SkipDryRunOnMissingResource=true
+spec:
+  metrics:
+    - name: success-rate
+      initialDelay: 60s
+      interval: 30s
+      failureLimit: 2
+      # No traffic yet => empty/NaN result, treat as pass rather than fail.
+      successCondition: len(result) == 0 || isNaN(result[0]) || result[0] >= 0.95
+      provider:
+        prometheus:
+          address: http://prometheus-operated.monitoring.svc.cluster.local:9090
+          query: |
+            sum(rate(http_server_requests_seconds_count{namespace="order-service",job="order-service",uri!~"/actuator.*",status!~"5.."}[1m]))
+            /
+            sum(rate(http_server_requests_seconds_count{namespace="order-service",job="order-service",uri!~"/actuator.*"}[1m]))

@@ -1,0 +1,247 @@
+# Cluster add-ons for the staging cluster. Versions are pinned PER ENVIRONMENT:
+# to upgrade an add-on, bump it here in dev first, then staging, then prod
+# (each a separate PR). That is how platform/infra changes get promoted.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: kube-prometheus-stack
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "-4" # first: other add-ons need its ServiceMonitor CRD
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: https://prometheus-community.github.io/helm-charts
+    chart: kube-prometheus-stack
+    targetRevision: 65.1.1
+    helm:
+      releaseName: kube-prometheus-stack
+      valuesObject:
+        # kubeadm binds these to 127.0.0.1, so scraping them only produces false alerts
+        kubeEtcd: { enabled: false }
+        kubeControllerManager: { enabled: false }
+        kubeScheduler: { enabled: false }
+        kubeProxy: { enabled: false }
+
+        prometheus:
+          service:
+            type: NodePort
+            nodePort: 30090
+          prometheusSpec:
+            # Every alert/series carries cluster=staging, so Slack messages say which env
+            externalLabels:
+              cluster: staging
+            retention: 8d       # SLO window is 7d
+            retentionSize: 6GB  # emptyDir on the node - cap it so the disk doesn't fill
+            # pick up ServiceMonitors/PrometheusRules from every namespace
+            serviceMonitorSelectorNilUsesHelmValues: false
+            podMonitorSelectorNilUsesHelmValues: false
+            ruleSelectorNilUsesHelmValues: false
+            resources:
+              requests: { cpu: 200m, memory: 512Mi }
+              limits: { memory: 1536Mi }
+
+        grafana:
+          service:
+            type: NodePort
+            nodePort: 30300
+          # Random password generated at bootstrap (master user-data) - never in Git
+          admin:
+            existingSecret: grafana-admin
+            userKey: admin-user
+            passwordKey: admin-password
+          sidecar:
+            dashboards:
+              searchNamespace: ALL           # load dashboards shipped next to each app
+              folderAnnotation: grafana_folder
+              provider:
+                foldersFromFilesStructure: true
+
+        alertmanager:
+          alertmanagerSpec:
+            # Slack webhook lives in a Secret (created at bootstrap), mounted at
+            # /etc/alertmanager/secrets/alertmanager-slack/
+            secrets: ["alertmanager-slack"]
+            resources:
+              requests: { cpu: 10m, memory: 64Mi }
+          config:
+            global:
+              resolve_timeout: 5m
+            route:
+              receiver: slack-warning
+              # One Slack message per alert type per namespace, not one per pod
+              group_by: ["alertname", "namespace", "severity"]
+              group_wait: 30s
+              group_interval: 5m
+              repeat_interval: 6h
+              routes:
+                # Watchdog always fires (proves the pipeline works); route to a
+                # dead-man's-switch service if you add one, otherwise drop it.
+                - receiver: "null"
+                  matchers: ['alertname =~ "Watchdog|InfoInhibitor"']
+                - receiver: "null"
+                  matchers: ['severity = "info"']
+                - receiver: slack-critical
+                  matchers: ['severity = "critical"']
+                  group_wait: 10s
+                  repeat_interval: 2h
+            inhibit_rules:
+              # Same problem at two severities (e.g. fast + slow burn) -> only the critical one notifies
+              - source_matchers: ['severity = "critical"']
+                target_matchers: ['severity =~ "warning|info"']
+                equal: ["alertname", "namespace"]
+              # Service completely down -> its latency/traffic/budget alerts are noise
+              - source_matchers: ['alertname = "OrderServiceDown"']
+                target_matchers: ['alertname =~ "OrderService.+"', 'alertname != "OrderServiceDown"']
+                equal: ["namespace"]
+              # Node down -> don't also page for every pod/target on it
+              - source_matchers: ['alertname = "KubeNodeNotReady"']
+                target_matchers: ['alertname =~ "TargetDown|KubePodNotReady|KubeDeploymentReplicasMismatch"']
+            receivers:
+              - name: "null"
+              - name: slack-warning
+                slack_configs:
+                  - api_url_file: /etc/alertmanager/secrets/alertmanager-slack/webhook-url
+                    send_resolved: true
+                    color: '{{ if eq .Status "firing" }}warning{{ else }}good{{ end }}'
+                    title: '[{{ .Status | toUpper }}{{ if eq .Status "firing" }}:{{ .Alerts.Firing | len }}{{ end }}] {{ .CommonLabels.alertname }} - staging'
+                    text: |-
+                      {{ range .Alerts }}• *{{ .Annotations.summary }}*
+                      {{ if .Annotations.description }}{{ .Annotations.description }}
+                      {{ end }}{{ if .Labels.namespace }}namespace: `{{ .Labels.namespace }}` {{ end }}{{ if .Labels.pod }}pod: `{{ .Labels.pod }}`{{ end }}
+                      {{ if .Annotations.runbook_url }}:book: <{{ .Annotations.runbook_url }}|Runbook>{{ end }}
+                      {{ end }}
+              - name: slack-critical
+                slack_configs:
+                  - api_url_file: /etc/alertmanager/secrets/alertmanager-slack/webhook-url
+                    send_resolved: true
+                    color: '{{ if eq .Status "firing" }}danger{{ else }}good{{ end }}'
+                    title: ':rotating_light: [{{ .Status | toUpper }}] {{ .CommonLabels.alertname }} - staging'
+                    text: |-
+                      {{ range .Alerts }}• *{{ .Annotations.summary }}*
+                      {{ if .Annotations.description }}{{ .Annotations.description }}
+                      {{ end }}{{ if .Labels.namespace }}namespace: `{{ .Labels.namespace }}` {{ end }}{{ if .Labels.pod }}pod: `{{ .Labels.pod }}`{{ end }}
+                      {{ if .Annotations.runbook_url }}:book: <{{ .Annotations.runbook_url }}|Runbook>{{ end }}
+                      {{ end }}
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: monitoring
+  syncPolicy:
+    automated: { prune: true, selfHeal: true }
+    syncOptions: ["CreateNamespace=true", "ServerSideApply=true"]
+    retry:
+      limit: 10
+      backoff: { duration: 30s, factor: 2, maxDuration: 10m }
+---
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: argo-rollouts
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "-3"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: https://argoproj.github.io/argo-helm
+    chart: argo-rollouts
+    targetRevision: 2.37.7
+    helm:
+      valuesObject:
+        controller:
+          metrics:
+            enabled: true
+            serviceMonitor:
+              enabled: true
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: argo-rollouts
+  syncPolicy:
+    automated: { prune: true, selfHeal: true }
+    syncOptions: ["CreateNamespace=true", "SkipDryRunOnMissingResource=true"]
+    retry:
+      limit: 10
+      backoff: { duration: 30s, factor: 2, maxDuration: 10m }
+---
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: kyverno
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "-3"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: https://kyverno.github.io/kyverno/
+    chart: kyverno
+    targetRevision: 3.2.8
+    helm:
+      valuesObject:
+        admissionController:
+          serviceMonitor:
+            enabled: true
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: kyverno
+  syncPolicy:
+    automated: { prune: true, selfHeal: true }
+    syncOptions: ["CreateNamespace=true", "ServerSideApply=true", "SkipDryRunOnMissingResource=true"]
+    retry:
+      limit: 10
+      backoff: { duration: 30s, factor: 2, maxDuration: 10m }
+---
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: kyverno-policies
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "-1"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/Anujsyal/order-platform-gitops.git
+    targetRevision: main
+    path: platform/kyverno-policies/overlays/staging
+  destination:
+    server: https://kubernetes.default.svc
+  syncPolicy:
+    automated: { prune: true, selfHeal: true }
+    syncOptions: ["SkipDryRunOnMissingResource=true"]
+    retry:
+      limit: 10
+      backoff: { duration: 30s, factor: 2, maxDuration: 10m }
+---
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: monitoring-config
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "-1"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/Anujsyal/order-platform-gitops.git
+    targetRevision: main
+    path: platform/monitoring
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: monitoring
+  syncPolicy:
+    automated: { prune: true, selfHeal: true }
+    syncOptions: ["SkipDryRunOnMissingResource=true"]
+    retry:
+      limit: 10
+      backoff: { duration: 30s, factor: 2, maxDuration: 10m }
