@@ -150,7 +150,7 @@
       "id": 11, "type": "timeseries", "title": "Orders created / min",
       "gridPos": { "x": 0, "y": 20, "w": 8, "h": 8 },
       "datasource": { "type": "prometheus", "uid": "${datasource}" },
-      "targets": [{ "refId": "A", "expr": "sum(rate(orders_created_total{namespace=\"order-service\"}[5m])) * 60", "legendFormat": "orders/min" }],
+      "targets": [{ "refId": "A", "expr": "sum(rate(orders_placed_total{namespace=\"order-service\"}[5m])) * 60", "legendFormat": "orders/min" }],
       "fieldConfig": { "defaults": { "unit": "short", "min": 0 }, "overrides": [] }
     },
     {
