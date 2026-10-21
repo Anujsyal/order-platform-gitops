@@ -15,7 +15,7 @@ spec:
   source:
     repoURL: https://prometheus-community.github.io/helm-charts
     chart: kube-prometheus-stack
-    targetRevision: 65.1.1
+    targetRevision: 92.11.0
     helm:
       releaseName: kube-prometheus-stack
       valuesObject:
@@ -149,7 +149,7 @@ spec:
   source:
     repoURL: https://argoproj.github.io/argo-helm
     chart: argo-rollouts
-    targetRevision: 2.37.7
+    targetRevision: 2.43.8
     helm:
       valuesObject:
         controller:
@@ -181,7 +181,7 @@ spec:
   source:
     repoURL: https://kyverno.github.io/kyverno/
     chart: kyverno
-    targetRevision: 3.2.8
+    targetRevision: 3.9.2
     helm:
       valuesObject:
         admissionController:
