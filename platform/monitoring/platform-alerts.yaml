@@ -37,7 +37,9 @@ spec:
     - name: progressive-delivery.rules
       rules:
         - alert: RolloutAborted
-          expr: max by (name, namespace) (rollout_info{phase="Degraded"}) == 1
+          # rollout_info reports an aborted canary as phase="Abort" (not "Degraded"), and the
+          # app's namespace arrives as exported_namespace (namespace = the controller's own).
+          expr: max by (name, namespace) (label_replace(rollout_info{phase="Abort"}, "namespace", "$1", "exported_namespace", "(.+)")) == 1
           for: 1m
           labels:
             severity: warning
@@ -46,7 +48,7 @@ spec:
             description: Canary analysis failed and Argo Rollouts restored the stable version. Users are safe, but the release needs investigation.
             runbook_url: https://github.com/Anujsyal/order-platform/blob/main/docs/RUNBOOKS.md#rolloutaborted
         - alert: RolloutStuck
-          expr: max by (name, namespace) (rollout_info{phase=~"Progressing|Paused"}) == 1
+          expr: max by (name, namespace) (label_replace(rollout_info{phase=~"Progressing|Paused"}, "namespace", "$1", "exported_namespace", "(.+)")) == 1
           for: 45m
           labels:
             severity: warning
