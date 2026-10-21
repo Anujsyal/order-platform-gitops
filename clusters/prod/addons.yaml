@@ -190,6 +190,15 @@ spec:
   destination:
     server: https://kubernetes.default.svc
     namespace: kyverno
+  # Kyverno 3.9.x renders `labels: {}` / `annotations: {}` on its policies.kyverno.io
+  # CRDs. The API server drops empty maps, so without this Argo CD reports those
+  # CRDs OutOfSync forever and auto-sync re-applies them every few seconds.
+  ignoreDifferences:
+    - group: apiextensions.k8s.io
+      kind: CustomResourceDefinition
+      jsonPointers:
+        - /metadata/labels
+        - /metadata/annotations
   syncPolicy:
     automated: { prune: true, selfHeal: true }
     syncOptions: ["CreateNamespace=true", "ServerSideApply=true", "SkipDryRunOnMissingResource=true"]
