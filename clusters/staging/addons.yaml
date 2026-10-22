@@ -174,8 +174,13 @@ metadata:
   namespace: argocd
   annotations:
     argocd.argoproj.io/sync-wave: "-3"
+  # The kyverno chart ships PreDelete hooks, so Argo CD adds the pre-delete
+  # finalizers itself. Declare them here too, otherwise the root app keeps
+  # removing them and Argo CD keeps re-adding them (endless OutOfSync loop).
   finalizers:
     - resources-finalizer.argocd.argoproj.io
+    - pre-delete-finalizer.argocd.argoproj.io
+    - pre-delete-finalizer.argocd.argoproj.io/cleanup
 spec:
   project: default
   source:
