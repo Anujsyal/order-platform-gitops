@@ -8,7 +8,7 @@ resources:
 images:
 - name: order-service
   newName: docker.io/maverick8826/order-service
-  newTag: 9-90d02cd
+  newTag: 11-977a8b5
 
 generatorOptions:
   disableNameSuffixHash: true
